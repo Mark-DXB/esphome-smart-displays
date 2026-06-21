@@ -1,0 +1,951 @@
+esphome:
+  name: waveshare-5-screen
+  friendly_name: Waveshare 5 Inch Display
+  on_boot:
+    priority: -100
+    then:
+      - switch.turn_off: backlight_switch
+      - delay: 100ms
+      - switch.turn_on: backlight_switch
+      - delay: 100ms
+      - script.execute: reset_sleep_timer
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: LIGHT
+
+  ap:
+    ssid: "Waveshare-5 Fallback"
+    password: !secret wifi_password
+
+captive_portal:
+
+logger:
+
+api:
+  encryption:
+    key: !secret waveshare-5-screen__api_key
+
+ota:
+  - platform: esphome
+
+# --- HARDWARE CONFIGURATION ---
+
+i2c:
+  id: bus_a
+  sda: GPIO8
+  scl: GPIO9
+  scan: true
+
+ch422g:
+  - id: ch422g_hub
+
+switch:
+  - platform: gpio
+    name: "Display Backlight"
+    id: backlight_switch
+    restore_mode: ALWAYS_ON
+    pin:
+      ch422g: ch422g_hub
+      number: 2
+
+button:
+  - platform: restart
+    id: device_restart
+    name: "Restart Display"
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+  - file: "gfonts://Roboto"
+    id: roboto_48
+    size: 48
+  - file: "gfonts://Material Icons"
+    id: material_36
+    size: 36
+    glyphs:
+      - "\U0000E037"
+      - "\U0000E034"
+      - "\U0000E045"
+      - "\U0000E044"
+      - "\U0000E047"
+      - "\U0000E328"
+  - file: "gfonts://Material Icons"
+    id: material_64
+    size: 64
+    glyphs:
+      - "\U0000E037"
+      - "\U0000E034"
+
+display:
+  - platform: mipi_rgb
+    id: main_display
+    model: CUSTOM
+    spi_id: dummy_spi
+    init_sequence: []
+    dimensions:
+      width: 800
+      height: 480
+    data_pins:
+      red: [GPIO1, GPIO2, GPIO42, GPIO41, GPIO40]
+      green: [GPIO39, GPIO0, GPIO45, GPIO48, GPIO47, GPIO21]
+      blue: [GPIO14, GPIO38, GPIO18, GPIO17, GPIO10]
+    de_pin: GPIO5
+    pclk_pin: GPIO7
+    hsync_pin: GPIO46
+    vsync_pin: GPIO3
+    reset_pin:
+      ch422g: ch422g_hub
+      number: 3
+    pclk_frequency: 16MHz
+    hsync_front_porch: 40
+    hsync_pulse_width: 48
+    hsync_back_porch: 40
+    vsync_front_porch: 13
+    vsync_pulse_width: 3
+    vsync_back_porch: 29
+
+touchscreen:
+  platform: gt911
+  id: main_touch
+  interrupt_pin: GPIO4
+  reset_pin:
+    ch422g: ch422g_hub
+    number: 1
+  on_touch:
+    - script.execute: reset_sleep_timer
+
+spi:
+  id: dummy_spi
+  clk_pin: GPIO11
+  mosi_pin: GPIO12
+
+# --- SYSTEM GLOBALS & SCRIPTS ---
+
+globals:
+  - id: active_speaker
+    type: std::string
+    initial_value: '"media_player.dining_room"'
+  - id: ignore_slider
+    type: bool
+    initial_value: "false"
+  - id: group_dining_enabled
+    type: bool
+    initial_value: "false"
+  - id: group_hall_enabled
+    type: bool
+    initial_value: "false"
+  - id: group_kitchen_enabled
+    type: bool
+    initial_value: "false"
+  - id: group_tv_room_enabled
+    type: bool
+    initial_value: "false"
+  - id: screen_awake
+    type: bool
+    initial_value: "true"
+
+script:
+  - id: reset_sleep_timer
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(screen_awake);'
+          then:
+            - switch.turn_on: backlight_switch
+            - delay: 200ms
+            - lvgl.widget.update:
+                id: sleep_shield
+                hidden: true
+            - lambda: 'id(screen_awake) = true;'
+      - delay: 30s
+      - lvgl.widget.update:
+          id: sleep_shield
+          hidden: false
+      - switch.turn_off: backlight_switch
+      - lambda: 'id(screen_awake) = false;'
+
+  - id: load_group_ui
+    then:
+      - lambda: |-
+          std::string m = "";
+          if (id(active_speaker) == "media_player.dining_room") m = id(dining_group).state;
+          else if (id(active_speaker) == "media_player.hall") m = id(hall_group).state;
+          else if (id(active_speaker) == "media_player.kitchen") m = id(kitchen_group).state;
+          else m = id(tv_group).state;
+          id(group_dining_enabled) = (m.find("media_player.dining_room") != std::string::npos);
+          id(group_hall_enabled) = (m.find("media_player.hall") != std::string::npos);
+          id(group_kitchen_enabled) = (m.find("media_player.kitchen") != std::string::npos);
+          id(group_tv_room_enabled) = (m.find("media_player.tv_room") != std::string::npos);
+      - lvgl.widget.update:
+          id: switch_group_dining
+          state:
+            checked: !lambda 'return id(group_dining_enabled);'
+      - lvgl.widget.update:
+          id: switch_group_hall
+          state:
+            checked: !lambda 'return id(group_hall_enabled);'
+      - lvgl.widget.update:
+          id: switch_group_kitchen
+          state:
+            checked: !lambda 'return id(group_kitchen_enabled);'
+      - lvgl.widget.update:
+          id: switch_group_tv_room
+          state:
+            checked: !lambda 'return id(group_tv_room_enabled);'
+
+  - id: refresh_ui
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: label_title
+          text: !lambda |-
+            if (id(active_speaker) == "media_player.dining_room") return id(dining_title).state;
+            if (id(active_speaker) == "media_player.hall") return id(hall_title).state;
+            if (id(active_speaker) == "media_player.kitchen") return id(kitchen_title).state;
+            return id(tv_title).state;
+      - lvgl.label.update:
+          id: label_artist
+          text: !lambda |-
+            if (id(active_speaker) == "media_player.dining_room") return id(dining_artist).state;
+            if (id(active_speaker) == "media_player.hall") return id(hall_artist).state;
+            if (id(active_speaker) == "media_player.kitchen") return id(kitchen_artist).state;
+            return id(tv_artist).state;
+      - lvgl.label.update:
+          id: label_play_pause
+          text: !lambda |-
+            std::string st = "idle";
+            if (id(active_speaker) == "media_player.dining_room") st = id(dining_state).state;
+            else if (id(active_speaker) == "media_player.hall") st = id(hall_state).state;
+            else if (id(active_speaker) == "media_player.kitchen") st = id(kitchen_state).state;
+            else st = id(tv_state).state;
+            return st == "playing" ? std::string("\U0000E034") : std::string("\U0000E037");
+      - if:
+          condition:
+            lambda: |-
+              float vol = 0.0;
+              if (id(active_speaker) == "media_player.dining_room") { vol = id(dining_volume).state; }
+              else if (id(active_speaker) == "media_player.hall") { vol = id(hall_volume).state; }
+              else if (id(active_speaker) == "media_player.kitchen") { vol = id(kitchen_volume).state; }
+              else { vol = id(tv_volume).state; }
+              return !std::isnan(vol);
+          then:
+            - lambda: 'id(ignore_slider) = true;'
+            - lvgl.slider.update:
+                id: slider_volume
+                value: !lambda |-
+                  float vol = 0.0;
+                  if (id(active_speaker) == "media_player.dining_room") { vol = id(dining_volume).state; }
+                  else if (id(active_speaker) == "media_player.hall") { vol = id(hall_volume).state; }
+                  else if (id(active_speaker) == "media_player.kitchen") { vol = id(kitchen_volume).state; }
+                  else { vol = id(tv_volume).state; }
+                  return vol * 100.0;
+            - delay: 100ms
+            - lambda: 'id(ignore_slider) = false;'
+      - lvgl.widget.update:
+          id: btn_dining
+          state:
+            checked: !lambda 'return id(active_speaker) == "media_player.dining_room";'
+      - lvgl.widget.update:
+          id: btn_hall
+          state:
+            checked: !lambda 'return id(active_speaker) == "media_player.hall";'
+      - lvgl.widget.update:
+          id: btn_kitchen
+          state:
+            checked: !lambda 'return id(active_speaker) == "media_player.kitchen";'
+      - lvgl.widget.update:
+          id: btn_tv_room
+          state:
+            checked: !lambda 'return id(active_speaker) == "media_player.tv_room";'
+      - lvgl.label.update:
+          id: label_btn_dining
+          text_color: !lambda 'return id(active_speaker) == "media_player.dining_room" ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xB3B3B3);'
+      - lvgl.label.update:
+          id: label_btn_hall
+          text_color: !lambda 'return id(active_speaker) == "media_player.hall" ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xB3B3B3);'
+      - lvgl.label.update:
+          id: label_btn_kitchen
+          text_color: !lambda 'return id(active_speaker) == "media_player.kitchen" ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xB3B3B3);'
+      - lvgl.label.update:
+          id: label_btn_tv_room
+          text_color: !lambda 'return id(active_speaker) == "media_player.tv_room" ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xB3B3B3);'
+
+text_sensor:
+  - platform: homeassistant
+    id: dining_title
+    entity_id: media_player.dining_room
+    attribute: media_title
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: dining_artist
+    entity_id: media_player.dining_room
+    attribute: media_artist
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: dining_state
+    entity_id: media_player.dining_room
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: dining_group
+    entity_id: media_player.dining_room
+    attribute: group_members
+
+  - platform: homeassistant
+    id: hall_title
+    entity_id: media_player.hall
+    attribute: media_title
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: hall_artist
+    entity_id: media_player.hall
+    attribute: media_artist
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: hall_state
+    entity_id: media_player.hall
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: hall_group
+    entity_id: media_player.hall
+    attribute: group_members
+
+  - platform: homeassistant
+    id: kitchen_title
+    entity_id: media_player.kitchen
+    attribute: media_title
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: kitchen_artist
+    entity_id: media_player.kitchen
+    attribute: media_artist
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: kitchen_state
+    entity_id: media_player.kitchen
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: kitchen_group
+    entity_id: media_player.kitchen
+    attribute: group_members
+
+  - platform: homeassistant
+    id: tv_title
+    entity_id: media_player.tv_room
+    attribute: media_title
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: tv_artist
+    entity_id: media_player.tv_room
+    attribute: media_artist
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: tv_state
+    entity_id: media_player.tv_room
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: tv_group
+    entity_id: media_player.tv_room
+    attribute: group_members
+
+sensor:
+  - platform: homeassistant
+    id: dining_volume
+    entity_id: media_player.dining_room
+    attribute: volume_level
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: hall_volume
+    entity_id: media_player.hall
+    attribute: volume_level
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: kitchen_volume
+    entity_id: media_player.kitchen
+    attribute: volume_level
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: tv_volume
+    entity_id: media_player.tv_room
+    attribute: volume_level
+    on_value: { then: [ script.execute: refresh_ui ] }
+
+# --- THE USER INTERFACE ---
+
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - main_touch
+  bg_color: 0x000000 
+  pages:
+    - id: main_page
+      widgets:
+        
+        # --- SPEAKER SELECTION TABS ---
+        - button:
+            id: btn_dining
+            checkable: true
+            align: top_left
+            x: 24
+            y: 20
+            width: 170
+            height: 50
+            radius: 25
+            bg_color: 0x282828
+            checked:
+              bg_color: 0x1DB954
+            on_click:
+              - lambda: 'id(active_speaker) = "media_player.dining_room";'
+              - script.execute: refresh_ui
+            widgets:
+              - label:
+                  id: label_btn_dining
+                  text: "Dining"
+                  align: center
+                  text_font: roboto_24
+                  text_color: 0xB3B3B3
+
+        - button:
+            id: btn_hall
+            checkable: true
+            align: top_left
+            x: 218
+            y: 20
+            width: 170
+            height: 50
+            radius: 25
+            bg_color: 0x282828
+            checked:
+              bg_color: 0x1DB954
+            on_click:
+              - lambda: 'id(active_speaker) = "media_player.hall";'
+              - script.execute: refresh_ui
+            widgets:
+              - label:
+                  id: label_btn_hall
+                  text: "Hall"
+                  align: center
+                  text_font: roboto_24
+                  text_color: 0xB3B3B3
+
+        - button:
+            id: btn_kitchen
+            checkable: true
+            align: top_left
+            x: 412
+            y: 20
+            width: 170
+            height: 50
+            radius: 25
+            bg_color: 0x282828
+            checked:
+              bg_color: 0x1DB954
+            on_click:
+              - lambda: 'id(active_speaker) = "media_player.kitchen";'
+              - script.execute: refresh_ui
+            widgets:
+              - label:
+                  id: label_btn_kitchen
+                  text: "Kitchen"
+                  align: center
+                  text_font: roboto_24
+                  text_color: 0xB3B3B3
+
+        - button:
+            id: btn_tv_room
+            checkable: true
+            align: top_left
+            x: 606
+            y: 20
+            width: 170
+            height: 50
+            radius: 25
+            bg_color: 0x282828
+            checked:
+              bg_color: 0x1DB954
+            on_click:
+              - lambda: 'id(active_speaker) = "media_player.tv_room";'
+              - script.execute: refresh_ui
+            widgets:
+              - label:
+                  id: label_btn_tv_room
+                  text: "TV Room"
+                  align: center
+                  text_font: roboto_24
+                  text_color: 0xB3B3B3
+
+        # --- TRACK INFO ---
+        - label:
+            id: label_title
+            text: "Waiting for music..."
+            text_font: roboto_48
+            text_color: 0xFFFFFF
+            align: center
+            y: -70
+            
+        - label:
+            id: label_artist
+            text: "-"
+            text_font: roboto_24
+            text_color: 0xB3B3B3
+            align: center
+            y: -15
+            
+        # --- TRANSPORT CONTROLS ---
+        - button:
+            id: btn_play_pause
+            align: center
+            y: 90
+            width: 90
+            height: 90
+            radius: 45
+            bg_color: 0x1DB954
+            shadow_width: 20
+            shadow_color: 0x1DB954
+            shadow_opa: 100%
+            pressed:
+              bg_color: 0x1ED760
+              shadow_width: 30
+              shadow_color: 0x1ED760
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_play_pause
+                  data:
+                    entity_id: !lambda 'return id(active_speaker);'
+            widgets:
+              - label:
+                  id: label_play_pause
+                  text: "\U0000E037"
+                  align: center
+                  text_font: material_64
+                  text_color: 0x000000
+                  
+        - button:
+            align: center
+            x: -120
+            y: 90
+            width: 60
+            height: 60
+            radius: 30
+            bg_color: 0x282828
+            pressed:
+              bg_color: 0x3E3E3E
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_previous_track
+                  data:
+                    entity_id: !lambda 'return id(active_speaker);'
+            widgets:
+              - label:
+                  text: "\U0000E044"
+                  align: center
+                  text_font: material_36
+                  text_color: 0xFFFFFF
+                  
+        - button:
+            align: center
+            x: 120
+            y: 90
+            width: 60
+            height: 60
+            radius: 30
+            bg_color: 0x282828
+            pressed:
+              bg_color: 0x3E3E3E
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_next_track
+                  data:
+                    entity_id: !lambda 'return id(active_speaker);'
+            widgets:
+              - label:
+                  text: "\U0000E045"
+                  align: center
+                  text_font: material_36
+                  text_color: 0xFFFFFF
+
+        # --- VOLUME SLIDER ---
+        - slider:
+            id: slider_volume
+            min_value: 0
+            max_value: 100
+            x: 225 
+            y: 400
+            width: 350
+            height: 12
+            bg_color: 0x535353
+            radius: 6
+            indicator:
+              bg_color: 0xFFFFFF
+              radius: 6
+            knob:
+              bg_color: 0xFFFFFF
+              radius: 12
+              pad_all: 8
+            on_value:
+              then:
+                - if:
+                    condition:
+                      lambda: 'return !id(ignore_slider);'
+                    then:
+                      - homeassistant.service:
+                          service: media_player.volume_set
+                          data:
+                            entity_id: !lambda 'return id(active_speaker);'
+                            volume_level: !lambda 'return to_string(x / 100.0);'
+
+        # --- QUICK ACTIONS ---
+
+        # GROUP BUTTON
+        - button:
+            align: bottom_left
+            x: 30
+            y: -30
+            width: 180
+            height: 50
+            radius: 25
+            bg_color: 0x282828
+            pressed:
+              bg_color: 0x3E3E3E
+            on_click:
+              - script.execute: load_group_ui
+              - lvgl.widget.update:
+                  id: modal_group
+                  hidden: false
+            widgets:
+              - label:
+                  text: "\U0000E328" 
+                  align: left_mid
+                  x: 15
+                  text_font: material_36
+                  text_color: 0xFFFFFF
+              - label:
+                  text: "Group"
+                  align: left_mid
+                  x: 55
+                  text_font: roboto_24
+                  text_color: 0xFFFFFF
+
+        # STOP ALL BUTTON
+        - button:
+            align: bottom_right
+            x: -30
+            y: -30
+            width: 180
+            height: 50
+            radius: 25
+            bg_color: 0x282828
+            pressed:
+              bg_color: 0x3E3E3E
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_pause
+                  data:
+                    entity_id: media_player.dining_room
+              - homeassistant.service:
+                  service: media_player.media_pause
+                  data:
+                    entity_id: media_player.hall
+              - homeassistant.service:
+                  service: media_player.media_pause
+                  data:
+                    entity_id: media_player.kitchen
+              - homeassistant.service:
+                  service: media_player.media_pause
+                  data:
+                    entity_id: media_player.tv_room
+            widgets:
+              - label:
+                  text: "\U0000E047"
+                  align: left_mid
+                  x: 15
+                  text_font: material_36
+                  text_color: 0xE22134
+              - label:
+                  text: "Stop All"
+                  align: left_mid
+                  x: 55
+                  text_font: roboto_24
+                  text_color: 0xFFFFFF
+
+        # --- GROUP MODAL OVERLAY ---
+        - obj:
+            id: modal_group
+            width: 800
+            height: 480
+            bg_color: 0x121212
+            hidden: true
+            widgets:
+              - label:
+                  text: "Group Speakers with Active Player"
+                  align: top_mid
+                  y: 20
+                  text_font: roboto_48
+                  text_color: 0xFFFFFF
+
+              # Dining Toggle
+              - label:
+                  text: "Dining"
+                  align: top_left
+                  x: 50
+                  y: 120
+                  text_font: roboto_24
+                  text_color: 0xFFFFFF
+              - switch:
+                  id: switch_group_dining
+                  align: top_left
+                  x: 150
+                  y: 110
+                  on_value:
+                    - lambda: 'id(group_dining_enabled) = x;'
+
+              # Hall Toggle
+              - label:
+                  text: "Hall"
+                  align: top_left
+                  x: 450
+                  y: 120
+                  text_font: roboto_24
+                  text_color: 0xFFFFFF
+              - switch:
+                  id: switch_group_hall
+                  align: top_left
+                  x: 550
+                  y: 110
+                  on_value:
+                    - lambda: 'id(group_hall_enabled) = x;'
+
+              # Kitchen Toggle
+              - label:
+                  text: "Kitchen"
+                  align: top_left
+                  x: 50
+                  y: 200
+                  text_font: roboto_24
+                  text_color: 0xFFFFFF
+              - switch:
+                  id: switch_group_kitchen
+                  align: top_left
+                  x: 150
+                  y: 190
+                  on_value:
+                    - lambda: 'id(group_kitchen_enabled) = x;'
+
+              # TV Room Toggle
+              - label:
+                  text: "TV Room"
+                  align: top_left
+                  x: 450
+                  y: 200
+                  text_font: roboto_24
+                  text_color: 0xFFFFFF
+              - switch:
+                  id: switch_group_tv_room
+                  align: top_left
+                  x: 550
+                  y: 190
+                  on_value:
+                    - lambda: 'id(group_tv_room_enabled) = x;'
+
+              # APPLY BUTTON
+              - button:
+                  align: bottom_left
+                  x: 50
+                  y: -50
+                  width: 200
+                  height: 60
+                  radius: 30
+                  bg_color: 0x1DB954
+                  on_click:
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.dining_room";'
+                        then:
+                          - if:
+                              condition:
+                                lambda: 'return id(group_dining_enabled);'
+                              then:
+                                - homeassistant.service:
+                                    service: media_player.join
+                                    data:
+                                      entity_id: !lambda 'return id(active_speaker);'
+                                      group_members: "media_player.dining_room"
+                              else:
+                                - homeassistant.service:
+                                    service: media_player.unjoin
+                                    data:
+                                      entity_id: "media_player.dining_room"
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.hall";'
+                        then:
+                          - if:
+                              condition:
+                                lambda: 'return id(group_hall_enabled);'
+                              then:
+                                - homeassistant.service:
+                                    service: media_player.join
+                                    data:
+                                      entity_id: !lambda 'return id(active_speaker);'
+                                      group_members: "media_player.hall"
+                              else:
+                                - homeassistant.service:
+                                    service: media_player.unjoin
+                                    data:
+                                      entity_id: "media_player.hall"
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.kitchen";'
+                        then:
+                          - if:
+                              condition:
+                                lambda: 'return id(group_kitchen_enabled);'
+                              then:
+                                - homeassistant.service:
+                                    service: media_player.join
+                                    data:
+                                      entity_id: !lambda 'return id(active_speaker);'
+                                      group_members: "media_player.kitchen"
+                              else:
+                                - homeassistant.service:
+                                    service: media_player.unjoin
+                                    data:
+                                      entity_id: "media_player.kitchen"
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.tv_room";'
+                        then:
+                          - if:
+                              condition:
+                                lambda: 'return id(group_tv_room_enabled);'
+                              then:
+                                - homeassistant.service:
+                                    service: media_player.join
+                                    data:
+                                      entity_id: !lambda 'return id(active_speaker);'
+                                      group_members: "media_player.tv_room"
+                              else:
+                                - homeassistant.service:
+                                    service: media_player.unjoin
+                                    data:
+                                      entity_id: "media_player.tv_room"
+                    - lvgl.widget.update:
+                        id: modal_group
+                        hidden: true
+                  widgets:
+                    - label:
+                        text: "Apply Group"
+                        align: center
+                        text_font: roboto_24
+                        text_color: 0x000000
+
+              # UNJOIN ALL BUTTON
+              - button:
+                  align: bottom_mid
+                  y: -50
+                  width: 200
+                  height: 60
+                  radius: 30
+                  bg_color: 0xE22134
+                  on_click:
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.dining_room";'
+                        then:
+                          - homeassistant.service:
+                              service: media_player.unjoin
+                              data:
+                                entity_id: "media_player.dining_room"
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.hall";'
+                        then:
+                          - homeassistant.service:
+                              service: media_player.unjoin
+                              data:
+                                entity_id: "media_player.hall"
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.kitchen";'
+                        then:
+                          - homeassistant.service:
+                              service: media_player.unjoin
+                              data:
+                                entity_id: "media_player.kitchen"
+                    - if:
+                        condition:
+                          lambda: 'return id(active_speaker) != "media_player.tv_room";'
+                        then:
+                          - homeassistant.service:
+                              service: media_player.unjoin
+                              data:
+                                entity_id: "media_player.tv_room"
+                    - lvgl.widget.update:
+                        id: modal_group
+                        hidden: true
+                  widgets:
+                    - label:
+                        text: "Unjoin All"
+                        align: center
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+              # CANCEL BUTTON
+              - button:
+                  align: bottom_right
+                  x: -50
+                  y: -50
+                  width: 200
+                  height: 60
+                  radius: 30
+                  bg_color: 0x282828
+                  on_click:
+                    - lvgl.widget.update:
+                        id: modal_group
+                        hidden: true
+                  widgets:
+                    - label:
+                        text: "Cancel"
+                        align: center
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+        # --- SECRET RESTART BUTTON ---
+        # An invisible 80x80 touch zone in the top-right corner.
+        # It is intentionally placed right before the sleep shield so 
+        # it is not clickable when the screen is asleep.
+        - obj:
+            align: top_right
+            width: 80
+            height: 80
+            bg_opa: TRANSP
+            border_width: 0
+            outline_width: 0
+            on_click:
+              - button.press: device_restart
+
+        # --- SLEEP SHIELD ---
+        # Drawn absolutely last so it sits visually on top of everything else
+        - obj:
+            id: sleep_shield
+            width: 800
+            height: 480
+            bg_opa: TRANSP
+            border_width: 0
+            outline_width: 0
+            hidden: true
+            on_click:
+              - script.execute: reset_sleep_timer
