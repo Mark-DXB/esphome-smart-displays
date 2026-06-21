@@ -511,7 +511,7 @@ lvgl:
                     entity_id: !lambda 'return id(active_speaker);'
             widgets:
               - label:
-                  text: "\U0000E044"
+                  text: "\U0000E045"
                   align: center
                   text_font: material_36
                   text_color: 0xFFFFFF
@@ -533,7 +533,7 @@ lvgl:
                     entity_id: !lambda 'return id(active_speaker);'
             widgets:
               - label:
-                  text: "\U0000E045"
+                  text: "\U0000E044"
                   align: center
                   text_font: material_36
                   text_color: 0xFFFFFF
