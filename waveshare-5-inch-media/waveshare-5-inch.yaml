@@ -1,6 +1,14 @@
 esphome:
   name: waveshare-5-screen
   friendly_name: Waveshare 5 Inch Display
+  on_boot:
+    priority: -100
+    then:
+      - switch.turn_off: backlight_switch
+      - delay: 100ms
+      - switch.turn_on: backlight_switch
+      - delay: 100ms
+      - script.execute: reset_sleep_timer
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -109,6 +117,8 @@ touchscreen:
   reset_pin:
     ch422g: ch422g_hub
     number: 1
+  on_touch:
+    - script.execute: reset_sleep_timer
 
 spi:
   id: dummy_spi
@@ -136,8 +146,31 @@ globals:
   - id: group_tv_room_enabled
     type: bool
     initial_value: "false"
+  - id: screen_awake
+    type: bool
+    initial_value: "true"
 
 script:
+  - id: reset_sleep_timer
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(screen_awake);'
+          then:
+            - switch.turn_on: backlight_switch
+            - delay: 200ms
+            - lvgl.widget.update:
+                id: sleep_shield
+                hidden: true
+            - lambda: 'id(screen_awake) = true;'
+      - delay: 30s
+      - lvgl.widget.update:
+          id: sleep_shield
+          hidden: false
+      - switch.turn_off: backlight_switch
+      - lambda: 'id(screen_awake) = false;'
+
   - id: load_group_ui
     then:
       - lambda: |-
@@ -879,3 +912,16 @@ lvgl:
                         align: center
                         text_font: roboto_24
                         text_color: 0xFFFFFF
+
+        # --- SLEEP SHIELD ---
+        # Drawn absolutely last so it sits visually on top of everything else
+        - obj:
+            id: sleep_shield
+            width: 800
+            height: 480
+            bg_opa: TRANSP
+            border_width: 0
+            outline_width: 0
+            hidden: true
+            on_click:
+              - script.execute: reset_sleep_timer
