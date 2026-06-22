@@ -87,6 +87,7 @@ display:
     id: main_display
     model: CUSTOM
     spi_id: dummy_spi
+    bounce_buffer_size_b: 16384
     init_sequence: []
     dimensions:
       width: 800
