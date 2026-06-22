@@ -159,7 +159,8 @@ script:
             lambda: 'return !id(screen_awake);'
           then:
             - switch.turn_on: backlight_switch
-            - delay: 200ms
+            - delay: 150ms
+            - lvgl.resume:
             - lvgl.widget.update:
                 id: sleep_shield
                 hidden: true
@@ -168,6 +169,7 @@ script:
       - lvgl.widget.update:
           id: sleep_shield
           hidden: false
+      - lvgl.pause:
       - switch.turn_off: backlight_switch
       - lambda: 'id(screen_awake) = false;'
 
