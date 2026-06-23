@@ -108,7 +108,7 @@ display:
     reset_pin:
       ch422g: ch422g_hub
       number: 3
-    pclk_frequency: 16MHz
+    pclk_frequency: 12MHz
     hsync_front_porch: 40
     hsync_pulse_width: 48
     hsync_back_porch: 40
