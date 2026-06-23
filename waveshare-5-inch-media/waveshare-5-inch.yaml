@@ -44,7 +44,8 @@ i2c:
   id: bus_a
   sda: GPIO8
   scl: GPIO9
-  scan: true
+  scan: false
+  frequency: 100kHz
 
 ch422g:
   - id: ch422g_hub
@@ -57,6 +58,11 @@ switch:
     pin:
       ch422g: ch422g_hub
       number: 2
+
+button:
+  - platform: restart
+    id: secret_reset_btn
+    name: "Secret Reset"
 
 font:
   - file: "gfonts://Roboto"
@@ -914,6 +920,16 @@ lvgl:
                         align: center
                         text_font: roboto_24
                         text_color: 0xFFFFFF
+
+        # --- SECRET RESET BUTTON ---
+        - obj:
+            width: 50
+            height: 50
+            align: top_left
+            bg_opa: TRANSP
+            border_width: 0
+            on_click:
+              - button.press: secret_reset_btn
 
         # --- SLEEP SHIELD ---
         # Drawn absolutely last so it sits visually on top of everything else
