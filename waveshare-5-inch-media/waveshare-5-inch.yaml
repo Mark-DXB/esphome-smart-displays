@@ -44,8 +44,7 @@ i2c:
   id: bus_a
   sda: GPIO8
   scl: GPIO9
-  scan: false
-  frequency: 100kHz
+  scan: true
 
 ch422g:
   - id: ch422g_hub
@@ -108,7 +107,7 @@ display:
     reset_pin:
       ch422g: ch422g_hub
       number: 3
-    pclk_frequency: 12MHz
+    pclk_frequency: 16MHz
     hsync_front_porch: 40
     hsync_pulse_width: 48
     hsync_back_porch: 40
