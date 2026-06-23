@@ -44,7 +44,8 @@ i2c:
   id: bus_a
   sda: GPIO8
   scl: GPIO9
-  scan: true
+  scan: false
+  frequency: 100kHz
 
 ch422g:
   - id: ch422g_hub
