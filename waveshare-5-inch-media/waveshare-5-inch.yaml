@@ -551,7 +551,7 @@ lvgl:
                   service: media_player.media_seek
                   data:
                     entity_id: !lambda 'return id(active_speaker);'
-                    seek_position: 0
+                    seek_position: "0"
             widgets:
               - label:
                   text: "\U0000E042"
