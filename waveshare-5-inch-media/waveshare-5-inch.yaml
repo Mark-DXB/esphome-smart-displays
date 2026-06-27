@@ -185,6 +185,14 @@ interval:
                   if (std::isnan(id(current_track_position))) return 0;
                   float pct = (id(current_track_position) / id(current_track_duration)) * 100.0;
                   return (pct > 100.0) ? 100.0 : pct;
+            - lvgl.label.update:
+                id: label_track_pos
+                text: !lambda |-
+                  if (std::isnan(id(current_track_position))) return std::string("0:00");
+                  int pos_secs = (int)id(current_track_position);
+                  char buf[10];
+                  sprintf(buf, "%d:%02d", pos_secs / 60, pos_secs % 60);
+                  return std::string(buf);
 
 script:
   - id: reset_sleep_timer
@@ -262,6 +270,22 @@ script:
             if (std::isnan(id(current_track_position))) return 0;
             float pct = (id(current_track_position) / id(current_track_duration)) * 100.0;
             return (pct > 100.0) ? 100.0 : pct;
+      - lvgl.label.update:
+          id: label_track_pos
+          text: !lambda |-
+            if (std::isnan(id(current_track_position))) return std::string("0:00");
+            int pos_secs = (int)id(current_track_position);
+            char buf[10];
+            sprintf(buf, "%d:%02d", pos_secs / 60, pos_secs % 60);
+            return std::string(buf);
+      - lvgl.label.update:
+          id: label_track_length
+          text: !lambda |-
+            if (id(current_track_duration) <= 0 || std::isnan(id(current_track_duration))) return std::string("0:00");
+            int dur_secs = (int)id(current_track_duration);
+            char buf[10];
+            sprintf(buf, "%d:%02d", dur_secs / 60, dur_secs % 60);
+            return std::string(buf);
       - lvgl.label.update:
           id: label_title
           text: !lambda |-
@@ -603,13 +627,32 @@ lvgl:
             y: 25
             width: 300
             height: 6
-            bg_color: 0x535353
+            bg_color: 0x3E3E3E
+            bg_opa: 100%
             radius: 3
             indicator:
               bg_color: 0xFFFFFF
               radius: 3
             value: 0
             animated: true
+            
+        - label:
+            id: label_track_pos
+            align: center
+            x: -190
+            y: 25
+            text: "0:00"
+            text_font: roboto_24
+            text_color: 0xB3B3B3
+
+        - label:
+            id: label_track_length
+            align: center
+            x: 190
+            y: 25
+            text: "0:00"
+            text_font: roboto_24
+            text_color: 0xB3B3B3
             
         # --- TRANSPORT CONTROLS ---
         - button:
