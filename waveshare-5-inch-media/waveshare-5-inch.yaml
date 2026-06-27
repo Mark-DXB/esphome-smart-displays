@@ -157,6 +157,35 @@ globals:
     type: bool
     initial_value: "true"
 
+  - id: current_track_position
+    type: float
+    initial_value: "0.0"
+  - id: current_track_duration
+    type: float
+    initial_value: "0.0"
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              std::string st = "idle";
+              if (id(active_speaker) == "media_player.dining_room") st = id(dining_state).state;
+              else if (id(active_speaker) == "media_player.hall") st = id(hall_state).state;
+              else if (id(active_speaker) == "media_player.kitchen") st = id(kitchen_state).state;
+              else st = id(tv_state).state;
+              return st == "playing";
+          then:
+            - lambda: 'if (!std::isnan(id(current_track_position))) id(current_track_position) += 1.0;'
+            - lvgl.bar.update:
+                id: bar_progress
+                value: !lambda |-
+                  if (id(current_track_duration) <= 0 || std::isnan(id(current_track_duration))) return 0;
+                  if (std::isnan(id(current_track_position))) return 0;
+                  float pct = (id(current_track_position) / id(current_track_duration)) * 100.0;
+                  return (pct > 100.0) ? 100.0 : pct;
+
 script:
   - id: reset_sleep_timer
     mode: restart
@@ -212,6 +241,27 @@ script:
   - id: refresh_ui
     mode: restart
     then:
+      - lambda: |-
+          if (id(active_speaker) == "media_player.dining_room") {
+            id(current_track_duration) = id(dining_duration).state;
+            id(current_track_position) = id(dining_position).state;
+          } else if (id(active_speaker) == "media_player.hall") {
+            id(current_track_duration) = id(hall_duration).state;
+            id(current_track_position) = id(hall_position).state;
+          } else if (id(active_speaker) == "media_player.kitchen") {
+            id(current_track_duration) = id(kitchen_duration).state;
+            id(current_track_position) = id(kitchen_position).state;
+          } else {
+            id(current_track_duration) = id(tv_duration).state;
+            id(current_track_position) = id(tv_position).state;
+          }
+      - lvgl.bar.update:
+          id: bar_progress
+          value: !lambda |-
+            if (id(current_track_duration) <= 0 || std::isnan(id(current_track_duration))) return 0;
+            if (std::isnan(id(current_track_position))) return 0;
+            float pct = (id(current_track_position) / id(current_track_duration)) * 100.0;
+            return (pct > 100.0) ? 100.0 : pct;
       - lvgl.label.update:
           id: label_title
           text: !lambda |-
@@ -384,6 +434,46 @@ sensor:
     entity_id: media_player.tv_room
     attribute: volume_level
     on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: dining_duration
+    entity_id: media_player.dining_room
+    attribute: media_duration
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: dining_position
+    entity_id: media_player.dining_room
+    attribute: media_position
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: hall_duration
+    entity_id: media_player.hall
+    attribute: media_duration
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: hall_position
+    entity_id: media_player.hall
+    attribute: media_position
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: kitchen_duration
+    entity_id: media_player.kitchen
+    attribute: media_duration
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: kitchen_position
+    entity_id: media_player.kitchen
+    attribute: media_position
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: tv_duration
+    entity_id: media_player.tv_room
+    attribute: media_duration
+    on_value: { then: [ script.execute: refresh_ui ] }
+  - platform: homeassistant
+    id: tv_position
+    entity_id: media_player.tv_room
+    attribute: media_position
+    on_value: { then: [ script.execute: refresh_ui ] }
 
 # --- THE USER INTERFACE ---
 
@@ -506,6 +596,20 @@ lvgl:
             text_color: 0xB3B3B3
             align: center
             y: -15
+            
+        - bar:
+            id: bar_progress
+            align: center
+            y: 25
+            width: 300
+            height: 6
+            bg_color: 0x535353
+            radius: 3
+            indicator:
+              bg_color: 0xFFFFFF
+              radius: 3
+            value: 0
+            animated: true
             
         # --- TRANSPORT CONTROLS ---
         - button:
