@@ -1,0 +1,454 @@
+esphome:
+  name: bedside-dubai
+  friendly_name: "Dubai Bedside Controller"
+  project:
+    name: Mark.BedsideDubai
+    version: "1.0"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  level: DEBUG
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Bedside-Dubai Hotspot"
+    password: "Password123"
+
+i2c:
+  sda: 15
+  scl: 7
+  scan: false
+  frequency: 100kHz
+
+pca9554:
+  - id: io_expander
+    address: 0x20
+
+output:
+  - platform: gpio
+    id: backlight_pin
+    pin:
+      pca9554: io_expander
+      number: 1
+  - platform: gpio
+    id: buzzer_pin
+    pin:
+      pca9554: io_expander
+      number: 5
+
+light:
+  - platform: binary
+    output: backlight_pin
+    name: "Display Backlight"
+    id: display_backlight
+
+spi:
+  clk_pin: 2
+  mosi_pin: 42
+
+display:
+  - platform: st7701s
+    id: main_display
+    cs_pin: 1
+    de_pin: 40
+    hsync_pin: 38
+    vsync_pin: 39
+    pclk_pin: 41
+    data_pins:
+      red: [5, 45, 48, 47, 21]
+      green: [14, 13, 12, 11, 10, 9]
+      blue: [46, 3, 8, 18, 17]
+    dimensions:
+      width: 480
+      height: 480
+    reset_pin:
+      pca9554: io_expander
+      number: 2
+    # Adjusting timings to match the Waveshare demo C++ code
+    hsync_front_porch: 10
+    hsync_pulse_width: 8
+    hsync_back_porch: 50
+    vsync_front_porch: 10
+    vsync_pulse_width: 8
+    vsync_back_porch: 20
+
+touchscreen:
+  - platform: gt911
+    id: main_touch
+    interrupt_pin: 16
+    reset_pin:
+      pca9554: io_expander
+      number: 0
+    on_touch:
+      - lambda: 'id(screen_awake) = true;'
+      - light.turn_on: display_backlight
+      - script.execute: reset_sleep_timer
+
+globals:
+  - id: screen_awake
+    type: bool
+    initial_value: "true"
+
+script:
+  - id: reset_sleep_timer
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(screen_awake);'
+          then:
+            - light.turn_on: display_backlight
+            - lambda: 'id(screen_awake) = true;'
+      - delay: 15s
+      - light.turn_off: display_backlight
+      - lambda: 'id(screen_awake) = false;'
+      - lvgl.widget.hide: obj_torch
+      - lvgl.widget.hide: obj_weather_modal
+      - lvgl.widget.show: obj_menu_1
+      - lvgl.widget.hide: obj_menu_2
+
+sensor:
+  - platform: homeassistant
+    id: weather_temp
+    entity_id: weather.forecast_home
+    attribute: temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: label_weather_temp
+            text: !lambda |-
+              char buf[32];
+              sprintf(buf, "%.1f°C", x);
+              return std::string(buf);
+
+text_sensor:
+  - platform: homeassistant
+    id: weather_condition
+    entity_id: weather.forecast_home
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: label_weather_cond
+            text: !lambda 'return x;'
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+  - file: "gfonts://Roboto"
+    id: roboto_48
+    size: 48
+  - file: "gfonts://Material Icons"
+    id: material_48
+    size: 48
+    glyphs:
+      - "\U0000E0F0" # bed
+      - "\U0000E8AC" # power_settings_new
+      - "\U0000E050" # volume_up / speaker
+      - "\U0000E5D2" # menu
+      - "\U0000E2EB" # hallway / lightbulb
+      - "\U0000E3E4" # flashlight_on
+      - "\U0000E534" # cloud
+      - "\U0000E5C4" # arrow_back
+
+lvgl:
+  log_level: WARN
+  bg_color: 0x000000
+  pages:
+    - id: main_page
+      widgets:
+        # MENU 1 (Main Menu)
+        - obj:
+            id: obj_menu_1
+            x: 0
+            y: 0
+            width: 480
+            height: 480
+            bg_color: 0x000000
+            border_width: 0
+            widgets:
+              # Top Left: Bedroom Light
+              - button:
+                  x: 10
+                  y: 10
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - homeassistant.service:
+                        service: light.toggle
+                        data:
+                          entity_id: light.bedroom_light
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E0F0" # bed
+                        text_font: material_48
+                        text_color: 0xFDA0
+                    - label:
+                        align: center
+                        y: 30
+                        text: "Bedroom"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+                        
+              # Top Right: All Off
+              - button:
+                  x: 245
+                  y: 10
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - homeassistant.service:
+                        service: light.turn_off
+                        data:
+                          entity_id: light.all_lights
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E8AC" # power
+                        text_font: material_48
+                        text_color: 0x64DF
+                    - label:
+                        align: center
+                        y: 30
+                        text: "All Off"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+              # Bottom Left: Sonos Sleep
+              - button:
+                  x: 10
+                  y: 245
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - homeassistant.service:
+                        service: script.sleep_playlist
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E050" # speaker
+                        text_font: material_48
+                        text_color: 0xFB2C
+                    - label:
+                        align: center
+                        y: 30
+                        text: "Sonos"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+              # Bottom Right: More Menu
+              - button:
+                  x: 245
+                  y: 245
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - lvgl.widget.hide: obj_menu_1
+                    - lvgl.widget.show: obj_menu_2
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E5D2" # menu
+                        text_font: material_48
+                        text_color: 0x9B3F
+                    - label:
+                        align: center
+                        y: 30
+                        text: "More"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+        # MENU 2 (More Options)
+        - obj:
+            id: obj_menu_2
+            x: 0
+            y: 0
+            width: 480
+            height: 480
+            bg_color: 0x000000
+            border_width: 0
+            hidden: true
+            widgets:
+              # Top Left: Hall Light
+              - button:
+                  x: 10
+                  y: 10
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - homeassistant.service:
+                        service: light.toggle
+                        data:
+                          entity_id: light.hall_lights
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E2EB" # lightbulb
+                        text_font: material_48
+                        text_color: 0xFDA0
+                    - label:
+                        align: center
+                        y: 30
+                        text: "Hall"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+                        
+              # Top Right: Torch (Nightlight)
+              - button:
+                  x: 245
+                  y: 10
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - lvgl.widget.show: obj_torch
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E3E4" # flashlight
+                        text_font: material_48
+                        text_color: 0x64DF
+                    - label:
+                        align: center
+                        y: 30
+                        text: "Torch"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+              # Bottom Left: Weather
+              - button:
+                  x: 10
+                  y: 245
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - lvgl.widget.show: obj_weather_modal
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E534" # cloud
+                        text_font: material_48
+                        text_color: 0xFB2C
+                    - label:
+                        align: center
+                        y: 30
+                        text: "Weather"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+              # Bottom Right: Back
+              - button:
+                  x: 245
+                  y: 245
+                  width: 225
+                  height: 225
+                  bg_color: 0x212121
+                  radius: 15
+                  on_click:
+                    - lvgl.widget.hide: obj_menu_2
+                    - lvgl.widget.show: obj_menu_1
+                  widgets:
+                    - label:
+                        align: center
+                        y: -20
+                        text: "\U0000E5C4" # back arrow
+                        text_font: material_48
+                        text_color: 0x9B3F
+                    - label:
+                        align: center
+                        y: 30
+                        text: "Back"
+                        text_font: roboto_24
+                        text_color: 0xFFFFFF
+
+        # TORCH LAYER (Full White Screen)
+        - obj:
+            id: obj_torch
+            x: 0
+            y: 0
+            width: 480
+            height: 480
+            bg_color: 0xFFFFFF
+            hidden: true
+            # When tapped, hide the torch screen to reveal the menus
+            on_click:
+              - lvgl.widget.hide: obj_torch
+
+        # WEATHER MODAL
+        - obj:
+            id: obj_weather_modal
+            align: center
+            width: 380
+            height: 280
+            bg_color: 0x111111
+            border_width: 2
+            border_color: 0x444444
+            radius: 20
+            hidden: true
+            on_click:
+              - lvgl.widget.hide: obj_weather_modal
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 30
+                  text: "Dubai Weather"
+                  text_font: roboto_24
+                  text_color: 0xB3B3B3
+              - label:
+                  id: label_weather_temp
+                  align: center
+                  y: -20
+                  text: "--°C"
+                  text_font: roboto_48
+                  text_color: 0xFFFFFF
+              - label:
+                  id: label_weather_cond
+                  align: center
+                  y: 40
+                  text: "Loading..."
+                  text_font: roboto_24
+                  text_color: 0xFB2C
+              - label:
+                  align: bottom_mid
+                  y: -30
+                  text: "Tap to close"
+                  text_font: roboto_24
+                  text_color: 0x555555
