@@ -66,7 +66,6 @@ spi:
 display:
   - platform: st7701s
     id: main_display
-    rotation: 180°
     cs_pin: 1
     de_pin: 40
     hsync_pin: 38
@@ -175,6 +174,7 @@ font:
 
 lvgl:
   log_level: WARN
+  rotation: 180°
   bg_color: 0x000000
   pages:
     - id: main_page
