@@ -170,6 +170,8 @@ font:
 
 lvgl:
   log_level: WARN
+  rotation: 180
+  full_refresh: true
   bg_color: 0x000000
   pages:
     - id: main_page
