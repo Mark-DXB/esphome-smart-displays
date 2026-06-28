@@ -92,10 +92,6 @@ display:
 touchscreen:
   - platform: gt911
     id: main_touch
-    transform:
-      swap_xy: false
-      mirror_x: true
-      mirror_y: true
     interrupt_pin: 16
     reset_pin:
       pca9554: io_expander
@@ -174,7 +170,6 @@ font:
 
 lvgl:
   log_level: WARN
-  rotation: 180°
   bg_color: 0x000000
   pages:
     - id: main_page
