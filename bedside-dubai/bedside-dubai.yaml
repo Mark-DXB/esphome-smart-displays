@@ -66,9 +66,7 @@ spi:
 display:
   - platform: st7701s
     id: main_display
-    transform:
-      mirror_x: true
-      mirror_y: true
+    rotation: 180°
     cs_pin: 1
     de_pin: 40
     hsync_pin: 38
